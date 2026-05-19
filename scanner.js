@@ -9,6 +9,7 @@ import {
 
 const table = document.getElementById('attendanceTable');
 
+// Add attendance row to table
 function addToTable(student, date, time) {
 
   const row = `
@@ -22,6 +23,7 @@ function addToTable(student, date, time) {
   table.innerHTML += row;
 }
 
+// Save attendance to Firebase
 async function saveAttendance(studentName) {
 
   const now = new Date();
@@ -29,13 +31,14 @@ async function saveAttendance(studentName) {
   const date = now.toLocaleDateString();
   const time = now.toLocaleTimeString();
 
-  // Prevent duplicate attendance same day
+  // Prevent duplicate attendance on same day
   const todayKey = `${studentName}_${date}`;
 
   const attendanceRef = doc(db, "attendance", todayKey);
 
   const existing = await getDoc(attendanceRef);
 
+  // Already scanned today
   if (existing.exists()) {
 
     alert("Attendance already recorded today");
@@ -51,17 +54,18 @@ async function saveAttendance(studentName) {
     timestamp: serverTimestamp()
   });
 
-  // Add to table instantly
+  // Add instantly to table
   addToTable(studentName, date, time);
 
   // Success message
-  alert("Attendance Saved Successfully");
+  alert(`Attendance Saved For ${studentName}`);
 }
 
-// Prevent scanner from scanning same QR repeatedly instantly
+// Prevent instant repeated scans
 let lastScanned = "";
 let lastScanTime = 0;
 
+// QR Scan Success
 function onScanSuccess(decodedText) {
 
   const currentTime = Date.now();
@@ -77,31 +81,78 @@ function onScanSuccess(decodedText) {
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
-  console.log("Scanned:", decodedText);
+  console.log("Scanned QR:", decodedText);
 
   saveAttendance(decodedText);
 }
 
-// Initialize Scanner
+// Create scanner
 const html5QrCode = new Html5Qrcode("reader");
 
-// Start Rear Camera
-html5QrCode.start(
-  {
-    facingMode: "environment"
-  },
-  {
-    fps: 15,
-    qrbox: {
-      width: 250,
-      height: 250
+// Get all cameras
+Html5Qrcode.getCameras()
+
+.then(devices => {
+
+  if (!devices || devices.length === 0) {
+
+    alert("No cameras found");
+
+    return;
+  }
+
+  console.log("Available Cameras:", devices);
+
+  let selectedCameraId = devices[0].id;
+
+  // Try to find rear/back camera
+  devices.forEach(device => {
+
+    const label = device.label.toLowerCase();
+
+    console.log("Camera:", label);
+
+    if (
+      label.includes("back") ||
+      label.includes("rear") ||
+      label.includes("environment")
+    ) {
+
+      selectedCameraId = device.id;
+    }
+  });
+
+  console.log("Selected Camera:", selectedCameraId);
+
+  // Start scanner
+  html5QrCode.start(
+    selectedCameraId,
+    {
+      fps: 15,
+
+      qrbox: {
+        width: 250,
+        height: 250
+      },
+
+      aspectRatio: 1.7778
     },
-    aspectRatio: 1.7778
-  },
-  onScanSuccess
-).catch(err => {
+    onScanSuccess
+  )
+
+  .catch(err => {
+
+    console.error("Scanner Start Error:", err);
+
+    alert("Failed to start scanner");
+  });
+
+})
+
+.catch(err => {
 
   console.error("Camera Error:", err);
 
   alert("Unable to access camera");
+
 });
