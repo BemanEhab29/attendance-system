@@ -10,11 +10,12 @@ import {
 const table = document.getElementById('attendanceTable');
 
 // Scanner Variables
-let html5QrCode;
+let html5QrCode = null;
 let cameras = [];
 let currentCameraIndex = 0;
+let scannerRunning = false;
 
-// Add attendance row to table
+// Add attendance row
 function addToTable(student, date, time) {
 
   const row = `
@@ -28,7 +29,7 @@ function addToTable(student, date, time) {
   table.innerHTML += row;
 }
 
-// Save attendance to Firebase
+// Save attendance
 async function saveAttendance(studentName) {
 
   const now = new Date();
@@ -36,13 +37,13 @@ async function saveAttendance(studentName) {
   const date = now.toLocaleDateString();
   const time = now.toLocaleTimeString();
 
-  // Prevent duplicate attendance same day
   const todayKey = `${studentName}_${date}`;
 
   const attendanceRef = doc(db, "attendance", todayKey);
 
   const existing = await getDoc(attendanceRef);
 
+  // Prevent duplicate attendance
   if (existing.exists()) {
 
     alert("Attendance already recorded today");
@@ -58,22 +59,21 @@ async function saveAttendance(studentName) {
     timestamp: serverTimestamp()
   });
 
-  // Add to table instantly
   addToTable(studentName, date, time);
 
   alert(`Attendance Saved For ${studentName}`);
 }
 
-// Prevent repeated instant scans
+// Prevent repeated scans
 let lastScanned = "";
 let lastScanTime = 0;
 
-// QR Scan Success
+// QR Success
 function onScanSuccess(decodedText) {
 
   const currentTime = Date.now();
 
-  // Ignore same QR within 3 seconds
+  // Ignore duplicate scans within 3 sec
   if (
     decodedText === lastScanned &&
     currentTime - lastScanTime < 3000
@@ -92,96 +92,96 @@ function onScanSuccess(decodedText) {
 // Start Scanner
 async function startScanner(cameraId) {
 
-  if (html5QrCode) {
+  try {
 
-    try {
+    // Stop old scanner safely
+    if (html5QrCode && scannerRunning) {
+
       await html5QrCode.stop();
-    } catch (e) {
-      console.log("Scanner already stopped");
+
+      await html5QrCode.clear();
+
+      scannerRunning = false;
     }
-  }
 
-  html5QrCode = new Html5Qrcode("reader");
+    // Create new scanner
+    html5QrCode = new Html5Qrcode("reader");
 
-  html5QrCode.start(
-    cameraId,
-    {
-      fps: 15,
+    // Start camera
+    await html5QrCode.start(
+      cameraId,
+      {
+        fps: 15,
 
-      qrbox: {
-        width: 250,
-        height: 250
+        qrbox: {
+          width: 250,
+          height: 250
+        },
+
+        aspectRatio: 1.7778
       },
+      onScanSuccess
+    );
 
-      aspectRatio: 1.7778
-    },
-    onScanSuccess
-  )
+    scannerRunning = true;
 
-  .then(() => {
+    console.log("Scanner Started");
 
-    console.log("Camera Started");
+  } catch (err) {
 
-  })
-
-  .catch(err => {
-
-    console.error("Start Error:", err);
+    console.error("Scanner Error:", err);
 
     alert("Failed to start camera");
-  });
+  }
 }
 
 // Initialize Cameras
-Html5Qrcode.getCameras()
+async function initScanner() {
 
-.then(devices => {
+  try {
 
-  if (!devices || devices.length === 0) {
+    cameras = await Html5Qrcode.getCameras();
 
-    alert("No cameras found");
+    if (!cameras || cameras.length === 0) {
 
-    return;
-  }
+      alert("No cameras found");
 
-  cameras = devices;
-
-  console.log("Available Cameras:", cameras);
-
-  // Try to auto-select back camera
-  let backCameraIndex = 0;
-
-  cameras.forEach((camera, index) => {
-
-    const label = camera.label.toLowerCase();
-
-    if (
-      label.includes("back") ||
-      label.includes("rear") ||
-      label.includes("environment")
-    ) {
-      backCameraIndex = index;
+      return;
     }
-  });
 
-  currentCameraIndex = backCameraIndex;
+    console.log("Available Cameras:", cameras);
 
-  // Start selected camera
-  startScanner(cameras[currentCameraIndex].id);
+    // Auto-select back camera
+    let backCameraIndex = 0;
 
-})
+    cameras.forEach((camera, index) => {
 
-.catch(err => {
+      const label = camera.label.toLowerCase();
 
-  console.error("Camera Error:", err);
+      if (
+        label.includes("back") ||
+        label.includes("rear") ||
+        label.includes("environment")
+      ) {
+        backCameraIndex = index;
+      }
+    });
 
-  alert("Unable to access camera");
+    currentCameraIndex = backCameraIndex;
 
-});
+    // Start selected camera
+    await startScanner(cameras[currentCameraIndex].id);
 
-// Switch Camera Button
-document.getElementById("switchCamera")
-.addEventListener("click", async () => {
+  } catch (err) {
+
+    console.error("Camera Init Error:", err);
+
+    alert("Unable to access camera");
+  }
+}
+
+// Switch Camera
+async function switchCamera() {
 
   if (cameras.length <= 1) {
 
@@ -190,7 +190,6 @@ document.getElementById("switchCamera")
     return;
   }
 
-  // Next camera
   currentCameraIndex++;
 
   if (currentCameraIndex >= cameras.length) {
@@ -203,5 +202,12 @@ document.getElementById("switchCamera")
   );
 
   await startScanner(cameras[currentCameraIndex].id);
+}
 
-});
+// Button Event
+document
+.getElementById("switchCamera")
+.addEventListener("click", switchCamera);
+
+// Start Everything
+initScanner();
