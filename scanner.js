@@ -7,6 +7,7 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// Attendance Table
 const table = document.getElementById('attendanceTable');
 
 // Scanner Variables
@@ -15,7 +16,10 @@ let cameras = [];
 let currentCameraIndex = 0;
 let scannerRunning = false;
 
-// Add attendance row
+// Manual Scan Control
+let scanningEnabled = false;
+
+// Add attendance row to table
 function addToTable(student, date, time) {
 
   const row = `
@@ -29,7 +33,7 @@ function addToTable(student, date, time) {
   table.innerHTML += row;
 }
 
-// Save attendance
+// Save attendance to Firebase
 async function saveAttendance(studentName) {
 
   const now = new Date();
@@ -37,13 +41,14 @@ async function saveAttendance(studentName) {
   const date = now.toLocaleDateString();
   const time = now.toLocaleTimeString();
 
+  // Prevent duplicate attendance same day
   const todayKey = `${studentName}_${date}`;
 
   const attendanceRef = doc(db, "attendance", todayKey);
 
   const existing = await getDoc(attendanceRef);
 
-  // Prevent duplicate attendance
+  // Already scanned today
   if (existing.exists()) {
 
     alert("Attendance already recorded today");
@@ -51,7 +56,7 @@ async function saveAttendance(studentName) {
     return;
   }
 
-  // Save to Firebase
+  // Save attendance
   await setDoc(attendanceRef, {
     student: studentName,
     date: date,
@@ -59,27 +64,37 @@ async function saveAttendance(studentName) {
     timestamp: serverTimestamp()
   });
 
+  // Add instantly to table
   addToTable(studentName, date, time);
 
+  // Success
   alert(`Attendance Saved For ${studentName}`);
 }
 
-// Prevent repeated scans
+// Prevent repeated instant scans
 let lastScanned = "";
 let lastScanTime = 0;
 
-// QR Success
+// QR Scan Success
 function onScanSuccess(decodedText) {
+
+  // Ignore if scan button not pressed
+  if (!scanningEnabled) {
+    return;
+  }
 
   const currentTime = Date.now();
 
-  // Ignore duplicate scans within 3 sec
+  // Ignore duplicate scans within 3 seconds
   if (
     decodedText === lastScanned &&
     currentTime - lastScanTime < 3000
   ) {
     return;
   }
+
+  // Disable scanning immediately after one scan
+  scanningEnabled = false;
 
   lastScanned = decodedText;
   lastScanTime = currentTime;
@@ -104,40 +119,42 @@ async function startScanner(cameraId) {
       scannerRunning = false;
     }
 
-    // Create new scanner
+    // Create scanner
     html5QrCode = new Html5Qrcode("reader");
 
     // Start camera
     await html5QrCode.start(
+
       cameraId,
+
       {
         fps: 20,
-    
+
         qrbox: {
           width: 300,
           height: 300
         },
-    
+
         aspectRatio: 1.0,
-    
+
         disableFlip: false,
-    
+
         experimentalFeatures: {
           useBarCodeDetectorIfSupported: true
         }
       },
 
-  (decodedText) => {
+      (decodedText) => {
 
-    console.log("QR Detected:", decodedText);
+        console.log("QR Detected:", decodedText);
 
-    onScanSuccess(decodedText);
-  },
+        onScanSuccess(decodedText);
+      },
 
-  (errorMessage) => {
-    // Ignore scan errors silently
-  }
-);
+      (errorMessage) => {
+        // Ignore scan errors silently
+      }
+    );
 
     scannerRunning = true;
 
@@ -167,7 +184,7 @@ async function initScanner() {
 
     console.log("Available Cameras:", cameras);
 
-    // Auto-select back camera
+    // Auto-select rear camera
     let backCameraIndex = 0;
 
     cameras.forEach((camera, index) => {
@@ -220,10 +237,23 @@ async function switchCamera() {
   await startScanner(cameras[currentCameraIndex].id);
 }
 
-// Button Event
+// Manual Scan Button
+function enableScan() {
+
+  scanningEnabled = true;
+
+  console.log("Ready To Scan...");
+}
+
+// Switch Camera Button
 document
 .getElementById("switchCamera")
 .addEventListener("click", switchCamera);
+
+// Scan QR Button
+document
+.getElementById("scanButton")
+.addEventListener("click", enableScan);
 
 // Start Everything
 initScanner();
