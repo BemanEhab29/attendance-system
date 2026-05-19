@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Generate Student QR</title>
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+  <h1>Student QR Generator</h1>
+
+  <input type="text" id="studentName" placeholder="Enter student name">
+
+  <button class="btn" onclick="generateQR()">Generate QR</button>
+
+  <div id="qrcode"></div>
+</div>
+
+<script>
+function generateQR() {
+  const name = document.getElementById('studentName').value;
+
+  document.getElementById('qrcode').innerHTML = "";
+
+  new QRCode(document.getElementById('qrcode'), {
+    text: name,
+    width: 250,
+    height: 250
+  });
+}
+</script>
+
+</body>
+</html>
