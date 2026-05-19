@@ -111,17 +111,33 @@ async function startScanner(cameraId) {
     await html5QrCode.start(
       cameraId,
       {
-        fps: 15,
-
+        fps: 20,
+    
         qrbox: {
-          width: 250,
-          height: 250
+          width: 300,
+          height: 300
         },
-
-        aspectRatio: 1.7778
+    
+        aspectRatio: 1.0,
+    
+        disableFlip: false,
+    
+        experimentalFeatures: {
+          useBarCodeDetectorIfSupported: true
+        }
       },
-      onScanSuccess
-    );
+
+  (decodedText) => {
+
+    console.log("QR Detected:", decodedText);
+
+    onScanSuccess(decodedText);
+  },
+
+  (errorMessage) => {
+    // Ignore scan errors silently
+  }
+);
 
     scannerRunning = true;
 
