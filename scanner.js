@@ -92,11 +92,11 @@ function exportToPDF() {
   const today = new Date().toISOString().slice(0, 10);
   
   // Setup configuration options for the PDF rendering generator
-  const options = {
+    const options = {
     margin:       15,
     filename:     `Attendance_Report_${today}.pdf`,
     image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2, useCORS: true, backgroundColor: "#121212" }, 
+    html2canvas:  { scale: 2, useCORS: true, backgroundColor: "#ffffff" }, // Changed to clean white background for PDF!
     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
   };
 
