@@ -34,9 +34,12 @@ h1 {
 
 #reader {
   width: 100%;
-  max-width: 500px;
+  max-width: 400px; /* Reduced slightly from 500px so it fits fully on phone screens without scrolling */
   margin: auto;
+  border-radius: 12px;
+  overflow: hidden; /* Keeps the camera corners clean and rounded */
 }
+
 
 table {
   width: 100%;
