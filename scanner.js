@@ -7,8 +7,9 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// Attendance Table
+// DOM Elements
 const table = document.getElementById('attendanceTable');
+const statusLabel = document.getElementById('scanStatus');
 
 // Scanner Variables
 let html5QrCode = null;
@@ -21,7 +22,6 @@ let scanningEnabled = false;
 
 // Add attendance row to table
 function addToTable(student, date, time) {
-
   const row = `
     <tr>
       <td>${student}</td>
@@ -29,46 +29,55 @@ function addToTable(student, date, time) {
       <td>${time}</td>
     </tr>
   `;
-
   table.innerHTML += row;
+}
+
+// Helper to update the visual status label
+function updateStatus(message, isSuccess) {
+  statusLabel.textContent = message;
+  if (isSuccess) {
+    statusLabel.className = "status-label status-success";
+  } else {
+    statusLabel.className = "status-label status-error";
+  }
 }
 
 // Save attendance to Firebase
 async function saveAttendance(studentName) {
+  try {
+    const now = new Date();
+    const date = now.toLocaleDateString();
+    const time = now.toLocaleTimeString();
 
-  const now = new Date();
+    // Prevent duplicate attendance same day
+    const todayKey = `${studentName}_${date}`;
+    const attendanceRef = doc(db, "attendance", todayKey);
+    const existing = await getDoc(attendanceRef);
 
-  const date = now.toLocaleDateString();
-  const time = now.toLocaleTimeString();
+    // Already scanned today
+    if (existing.exists()) {
+      updateStatus(`Error: Attendance already recorded today for ${studentName}`, false);
+      return;
+    }
 
-  // Prevent duplicate attendance same day
-  const todayKey = `${studentName}_${date}`;
+    // Save attendance to Firestore
+    await setDoc(attendanceRef, {
+      student: studentName,
+      date: date,
+      time: time,
+      timestamp: serverTimestamp()
+    });
 
-  const attendanceRef = doc(db, "attendance", todayKey);
+    // Add instantly to UI table
+    addToTable(studentName, date, time);
 
-  const existing = await getDoc(attendanceRef);
+    // Update label to SUCCESS (Green)
+    updateStatus(`Successfully scanned: ${studentName}`, true);
 
-  // Already scanned today
-  if (existing.exists()) {
-
-    alert("Attendance already recorded today");
-
-    return;
+  } catch (error) {
+    console.error("Firebase save error:", error);
+    updateStatus("Error: Failed saving to database.", false);
   }
-
-  // Save attendance
-  await setDoc(attendanceRef, {
-    student: studentName,
-    date: date,
-    time: time,
-    timestamp: serverTimestamp()
-  });
-
-  // Add instantly to table
-  addToTable(studentName, date, time);
-
-  // Success
-  alert(`Attendance Saved For ${studentName}`);
 }
 
 // Prevent repeated instant scans
@@ -77,7 +86,6 @@ let lastScanTime = 0;
 
 // QR Scan Success
 function onScanSuccess(decodedText) {
-
   // Ignore if scan button not pressed
   if (!scanningEnabled) {
     return;
@@ -93,92 +101,66 @@ function onScanSuccess(decodedText) {
     return;
   }
 
-  // Disable scanning immediately after one scan
+  // Disable scanning immediately after one scan happens
   scanningEnabled = false;
 
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
   console.log("Scanned:", decodedText);
-
   saveAttendance(decodedText);
 }
 
-// Start Scanner
+// Start Scanner Engine
 async function startScanner(cameraId) {
-
   try {
-
     // Stop old scanner safely
     if (html5QrCode && scannerRunning) {
-
       await html5QrCode.stop();
-
       await html5QrCode.clear();
-
       scannerRunning = false;
     }
 
     // Create scanner
     html5QrCode = new Html5Qrcode("reader");
 
-    // Start camera
+    // Start camera stream
     await html5QrCode.start(
-
       cameraId,
-
       {
         fps: 20,
-
-        qrbox: {
-          width: 300,
-          height: 300
-        },
-
+        qrbox: { width: 300, height: 300 },
         aspectRatio: 1.0,
-
         disableFlip: false,
-
         experimentalFeatures: {
           useBarCodeDetectorIfSupported: true
         }
       },
-
       (decodedText) => {
-
         console.log("QR Detected:", decodedText);
-
         onScanSuccess(decodedText);
       },
-
       (errorMessage) => {
-        // Ignore scan errors silently
+        // Ignore internal scanner lookup chatter safely
       }
     );
 
     scannerRunning = true;
-
     console.log("Scanner Started");
 
   } catch (err) {
-
     console.error("Scanner Error:", err);
-
-    alert("Failed to start camera");
+    updateStatus("Critical: Failed to access video feed.", false);
   }
 }
 
-// Initialize Cameras
+// Initialize System Cameras
 async function initScanner() {
-
   try {
-
     cameras = await Html5Qrcode.getCameras();
 
     if (!cameras || cameras.length === 0) {
-
-      alert("No cameras found");
-
+      updateStatus("Initialization Error: No cameras found.", false);
       return;
     }
 
@@ -186,11 +168,8 @@ async function initScanner() {
 
     // Auto-select rear camera
     let backCameraIndex = 0;
-
     cameras.forEach((camera, index) => {
-
       const label = camera.label.toLowerCase();
-
       if (
         label.includes("back") ||
         label.includes("rear") ||
@@ -202,58 +181,42 @@ async function initScanner() {
 
     currentCameraIndex = backCameraIndex;
 
-    // Start selected camera
+    // Run camera initialization
     await startScanner(cameras[currentCameraIndex].id);
 
   } catch (err) {
-
     console.error("Camera Init Error:", err);
-
-    alert("Unable to access camera");
+    updateStatus("Initialization Error: Check camera browser permissions.", false);
   }
 }
 
-// Switch Camera
+// Switch Active Camera
 async function switchCamera() {
-
   if (cameras.length <= 1) {
-
-    alert("Only one camera found");
-
+    updateStatus("System Info: Only one camera detected.", false);
     return;
   }
 
   currentCameraIndex++;
-
   if (currentCameraIndex >= cameras.length) {
     currentCameraIndex = 0;
   }
 
-  console.log(
-    "Switching To:",
-    cameras[currentCameraIndex].label
-  );
-
+  console.log("Switching To:", cameras[currentCameraIndex].label);
   await startScanner(cameras[currentCameraIndex].id);
 }
 
-// Manual Scan Button
+// Manual Scan Button handler
 function enableScan() {
-
   scanningEnabled = true;
-
-  console.log("Ready To Scan...");
+  updateStatus("Scanning active... point at a QR code", true); 
+  // Displays white/neutral text until success or failure changes it
+  statusLabel.className = "status-label"; 
 }
 
-// Switch Camera Button
-document
-.getElementById("switchCamera")
-.addEventListener("click", switchCamera);
+// Event Listeners
+document.getElementById("switchCamera").addEventListener("click", switchCamera);
+document.getElementById("scanButton").addEventListener("click", enableScan);
 
-// Scan QR Button
-document
-.getElementById("scanButton")
-.addEventListener("click", enableScan);
-
-// Start Everything
+// Boot up everything on page ready
 initScanner();
