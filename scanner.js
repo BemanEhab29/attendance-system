@@ -34,56 +34,81 @@ function updateStatus(message, isSuccess) {
 // LOCAL STORAGE ATTENDANCE ENGINE
 // ==========================================
 
-// Load saved data from browser memory and display it in the table on start
 function loadSavedAttendance() {
   const savedData = localStorage.getItem('attendanceRecords');
   if (savedData) {
     const records = JSON.parse(savedData);
-    table.innerHTML = ""; // Clear table layout skeleton
+    table.innerHTML = ""; 
     records.forEach(record => {
       addToTable(record.student, record.date, record.time);
     });
   }
 }
 
-// Save attendance data locally
 function saveAttendanceLocally(studentName) {
   const now = new Date();
   const date = now.toLocaleDateString();
   const time = now.toLocaleTimeString();
 
-  // Get current records array or make a new one if empty
   let records = [];
   const savedData = localStorage.getItem('attendanceRecords');
   if (savedData) {
     records = JSON.parse(savedData);
   }
 
-  // Prevent duplicate attendance for the same student on the same day
   const isDuplicate = records.some(record => record.student === studentName && record.date === date);
   if (isDuplicate) {
     updateStatus(`Error: Attendance already recorded today for ${studentName}`, false);
     return;
   }
 
-  // Push new record object into the local array
   records.push({ student: studentName, date: date, time: time });
-
-  // Save the array back into the browser's permanent storage
   localStorage.setItem('attendanceRecords', JSON.stringify(records));
 
-  // Instantly append to table interface
   addToTable(studentName, date, time);
   updateStatus(`Successfully scanned: ${studentName}`, true);
 }
 
-// Clear all local records function
 function clearAllRecords() {
   if (confirm("Are you sure you want to clear all attendance data from this phone?")) {
     localStorage.removeItem('attendanceRecords');
     table.innerHTML = "";
     updateStatus("All records cleared successfully.", true);
   }
+}
+
+// ==========================================
+// EXPORT TO PDF ENGINE
+// ==========================================
+function exportToPDF() {
+  const element = document.getElementById('pdfTarget');
+  
+  // Quick safety check: don't export a blank table layout shell
+  if (table.rows.length === 0) {
+    alert("There are no attendance records to export yet!");
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  
+  // Setup configuration options for the PDF rendering generator
+  const options = {
+    margin:       15,
+    filename:     `Attendance_Report_${today}.pdf`,
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2, useCORS: true, backgroundColor: "#121212" }, 
+    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  };
+
+  updateStatus("Generating PDF sheet...", true);
+
+  // Execute the engine command sequence
+  html2pdf().set(options).from(element).save().then(() => {
+    updateStatus("PDF downloaded successfully!", true);
+  }).catch(err => {
+    console.error("PDF engine crash:", err);
+    updateStatus("Error: Failed to build layout document.", false);
+  });
 }
 
 // Anti-spam timers
@@ -102,7 +127,6 @@ function onScanSuccess(decodedText) {
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
-  console.log("Locally Parsed QR:", decodedText);
   saveAttendanceLocally(decodedText);
 }
 
@@ -119,7 +143,7 @@ async function startScanner(cameraId) {
     await html5QrCode.start(
       cameraId,
       {
-        fps: 30, // High-speed framing scan track speed
+        fps: 30,
         qrbox: (viewfinderWidth, viewfinderHeight) => {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
           const boxSize = Math.floor(minEdge * 0.75);
@@ -131,12 +155,10 @@ async function startScanner(cameraId) {
       (decodedText) => {
         onScanSuccess(decodedText);
       },
-      (errorMessage) => { /* Background tracker bypass */ }
+      (errorMessage) => {}
     );
 
     scannerRunning = true;
-    console.log("Scanner live.");
-
   } catch (err) {
     console.error(err);
     updateStatus("Critical: Camera initialization failed.", false);
@@ -172,25 +194,18 @@ async function initScanner() {
   }
 }
 
-async function switchCamera() {
-  if (cameras.length <= 1) return;
-  currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
-  await startScanner(cameras[currentCameraIndex].id);
-}
-
 function enableScan() {
   scanningEnabled = true;
   updateStatus("Scanning active... point lens at QR code", true);
   statusLabel.className = "status-label";
 }
 
-// Bind components securely on script execution run
+// Bind event triggers
 script.onload = () => {
-  document.getElementById("switchCamera").addEventListener("click", switchCamera);
   document.getElementById("scanButton").addEventListener("click", enableScan);
   document.getElementById("clearData").addEventListener("click", clearAllRecords);
+  document.getElementById("exportPdf").addEventListener("click", exportToPDF);
   
-  // Load any existing past student data out of the memory block
   loadSavedAttendance();
   initScanner();
 };
