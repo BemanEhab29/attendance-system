@@ -7,6 +7,9 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// Load the QR Scanner directly as a module to fix the silent loading crash!
+import { Html5Qrcode } from "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm";
+
 // DOM Elements
 const table = document.getElementById('attendanceTable');
 const statusLabel = document.getElementById('scanStatus');
@@ -18,19 +21,11 @@ let currentCameraIndex = 0;
 let scannerRunning = false;
 let scanningEnabled = false;
 
-// Add attendance row to table UI
 function addToTable(student, date, time) {
-  const row = `
-    <tr>
-      <td>${student}</td>
-      <td>${date}</td>
-      <td>${time}</td>
-    </tr>
-  `;
+  const row = `<tr><td>${student}</td><td>${date}</td><td>${time}</td></tr>`;
   table.innerHTML += row;
 }
 
-// Helper to update the visual status label (Green for success, Red for error)
 function updateStatus(message, isSuccess) {
   statusLabel.textContent = message;
   if (isSuccess) {
@@ -40,14 +35,12 @@ function updateStatus(message, isSuccess) {
   }
 }
 
-// Save attendance record to Firebase Firestore
 async function saveAttendance(studentName) {
   try {
     const now = new Date();
     const date = now.toLocaleDateString();
     const time = now.toLocaleTimeString();
 
-    // Prevent duplicate entries on the exact same calendar day
     const todayKey = `${studentName}_${date}`;
     const attendanceRef = doc(db, "attendance", todayKey);
     const existing = await getDoc(attendanceRef);
@@ -57,7 +50,6 @@ async function saveAttendance(studentName) {
       return;
     }
 
-    // Write record to Firebase
     await setDoc(attendanceRef, {
       student: studentName,
       date: date,
@@ -65,44 +57,34 @@ async function saveAttendance(studentName) {
       timestamp: serverTimestamp()
     });
 
-    // Instantly append to the visual interface table
     addToTable(studentName, date, time);
-
-    // Update label text to SUCCESS (Green)
     updateStatus(`Successfully scanned: ${studentName}`, true);
 
   } catch (error) {
     console.error("Firebase save error:", error);
-    updateStatus("Error: Failed saving data to the database.", false);
+    updateStatus("Error: Failed saving to database.", false);
   }
 }
 
-// Anti-spam scan buffers
 let lastScanned = "";
 let lastScanTime = 0;
 
-// Triggered immediately when a QR code matches successfully
 function onScanSuccess(decodedText) {
-  if (!scanningEnabled) {
-    return;
-  }
+  if (!scanningEnabled) return;
 
   const currentTime = Date.now();
-
-  // Ignore instant accidental double-scans within 3 seconds
   if (decodedText === lastScanned && currentTime - lastScanTime < 3000) {
     return;
   }
 
-  scanningEnabled = false; // Lock scanning until button clicked again
+  scanningEnabled = false; 
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
-  console.log("Scanned data:", decodedText);
+  console.log("Scanned:", decodedText);
   saveAttendance(decodedText);
 }
 
-// Start Active Scanner Engine with Full-Frame Reading
 async function startScanner(cameraId) {
   try {
     if (html5QrCode && scannerRunning) {
@@ -116,7 +98,13 @@ async function startScanner(cameraId) {
     await html5QrCode.start(
       cameraId,
       {
-        fps: 30, // Fast frame scanning tracking
+        fps: 24,
+        // Using a fluid bounding box calculation to help the lens focus cleanly
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+          const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+          const boxSize = Math.floor(minEdge * 0.75); // 75% of screen size
+          return { width: boxSize, height: boxSize };
+        },
         aspectRatio: 1.0,
         disableFlip: false
       },
@@ -124,32 +112,25 @@ async function startScanner(cameraId) {
         onScanSuccess(decodedText);
       },
       (errorMessage) => {
-        // Internal framework noise suppression
+        // Silent catch
       }
     );
 
     scannerRunning = true;
-    console.log("Camera parser online.");
+    console.log("Scanner engine is live!");
 
   } catch (err) {
-    console.error("Scanner Video Crash:", err);
-    updateStatus("Critical: Failed to access camera feed.", false);
+    console.error("Scanner Start Error:", err);
+    updateStatus("Critical: Camera initialization failed.", false);
   }
 }
 
-// Query browser camera hardware 
 async function initScanner() {
   try {
-    if (typeof Html5Qrcode === 'undefined') {
-      console.warn("Retrying camera initialization...");
-      setTimeout(initScanner, 300);
-      return;
-    }
-
     cameras = await Html5Qrcode.getCameras();
 
     if (!cameras || cameras.length === 0) {
-      updateStatus("Initialization Error: No cameras detected.", false);
+      updateStatus("Error: No cameras found.", false);
       return;
     }
 
@@ -165,36 +146,32 @@ async function initScanner() {
     await startScanner(cameras[currentCameraIndex].id);
 
   } catch (err) {
-    console.error("Device Capture Setup Crash:", err);
-    updateStatus("Initialization Error: Check browser camera permissions.", false);
+    console.error("Camera Init Error:", err);
+    updateStatus("Error: Please grant camera access permissions.", false);
   }
 }
 
-// Toggle active phone lenses
 async function switchCamera() {
-  if (cameras.length <= 1) {
-    updateStatus("System Info: Single physical lens detected.", false);
-    return;
-  }
-
-  currentCameraIndex++;
-  if (currentCameraIndex >= cameras.length) {
-    currentCameraIndex = 0;
-  }
-
+  if (cameras.length <= 1) return;
+  currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
   await startScanner(cameras[currentCameraIndex].id);
 }
 
-// Triggered by "Scan QR" button
 function enableScan() {
   scanningEnabled = true;
-  updateStatus("Scanning active... wave over a student QR code", true);
-  statusLabel.className = "status-label"; // Neutral text color style while searching
+  updateStatus("Scanning active... point lens at QR code", true);
+  statusLabel.className = "status-label";
 }
 
-// Register browser event triggers once DOM elements are stable
-document.addEventListener("DOMContentLoaded", () => {
+// Boot setup securely after DOM is ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("switchCamera").addEventListener("click", switchCamera);
+    document.getElementById("scanButton").addEventListener("click", enableScan);
+    initScanner();
+  });
+} else {
   document.getElementById("switchCamera").addEventListener("click", switchCamera);
   document.getElementById("scanButton").addEventListener("click", enableScan);
   initScanner();
-});
+}
