@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>QR Scanner</title>
   <link rel="stylesheet" href="style.css">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 <body>
 
@@ -18,26 +20,29 @@
   <button id="scanButton" class="btn">
     Scan QR
   </button>
-  <button id="switchCamera" class="btn">
-    Switch Camera
-  </button>
   
+  <button id="exportPdf" class="btn" style="background: #9c27b0;">
+    Export to PDF
+  </button>
+
   <button id="clearData" class="btn" style="background: #f44336;">
     Clear Records
   </button>
 
   <h2>Attendance Records</h2>
 
-  <table>
-    <thead>
-      <tr>
-        <th>Student</th>
-        <th>Date</th>
-        <th>Time</th>
-      </tr>
-    </thead>
-    <tbody id="attendanceTable"></tbody>
-  </table>
+  <div id="pdfTarget">
+    <table id="attendanceTableElement">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Date</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody id="attendanceTable"></tbody>
+    </table>
+  </div>
 </div>
 
 <script src="scanner.js"></script>
