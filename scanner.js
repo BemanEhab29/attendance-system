@@ -7,25 +7,6 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-// ==========================================
-// NATIVE HACK: INVERT CAMERA VIDEO MATRIX
-// Forces the scanner to read light-on-dark codes
-// ==========================================
-if (typeof Html5Qrcode !== 'undefined') {
-  Html5Qrcode.prototype.old_scan = Html5Qrcode.prototype.scan;
-  Html5Qrcode.prototype.scan = function(canvasElement) {
-    const ctx = canvasElement.getContext('2d');
-    if (ctx) {
-      // Flips the pixel luminance calculations in real-time
-      ctx.globalCompositeOperation = 'difference';
-      ctx.fillStyle = 'white';
-      ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    return this.old_scan(canvasElement);
-  };
-}
-
 // DOM Elements
 const table = document.getElementById('attendanceTable');
 const statusLabel = document.getElementById('scanStatus');
@@ -35,8 +16,6 @@ let html5QrCode = null;
 let cameras = [];
 let currentCameraIndex = 0;
 let scannerRunning = false;
-
-// Manual Scan Control
 let scanningEnabled = false;
 
 // Add attendance row to table UI
@@ -73,7 +52,6 @@ async function saveAttendance(studentName) {
     const attendanceRef = doc(db, "attendance", todayKey);
     const existing = await getDoc(attendanceRef);
 
-    // Check if student already checked in today
     if (existing.exists()) {
       updateStatus(`Error: Attendance already recorded today for ${studentName}`, false);
       return;
@@ -105,112 +83,94 @@ let lastScanTime = 0;
 
 // Triggered immediately when a QR code matches successfully
 function onScanSuccess(decodedText) {
-  // Ignore processing if the physical "Scan QR" button wasn't armed
   if (!scanningEnabled) {
     return;
   }
 
   const currentTime = Date.now();
 
-  // Ignore instant accidental double-scans of the exact same code within 3 seconds
-  if (
-    decodedText === lastScanned &&
-    currentTime - lastScanTime < 3000
-  ) {
+  // Ignore instant accidental double-scans within 3 seconds
+  if (decodedText === lastScanned && currentTime - lastScanTime < 3000) {
     return;
   }
 
-  // Lock the scanner immediately after one valid code is read
-  scanningEnabled = false;
-
+  scanningEnabled = false; // Lock scanning until button clicked again
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
-  console.log("Scanned data target:", decodedText);
+  console.log("Scanned data:", decodedText);
   saveAttendance(decodedText);
 }
 
-// Start Active Scanner Engine with Instant Full-Frame Reading configuration
+// Start Active Scanner Engine with Full-Frame Reading
 async function startScanner(cameraId) {
   try {
-    // Tear down any existing active stream cleanly before rebuilding
     if (html5QrCode && scannerRunning) {
       await html5QrCode.stop();
       await html5QrCode.clear();
       scannerRunning = false;
     }
 
-    // Instantiate library scanner linked to the HTML view target
     html5QrCode = new Html5Qrcode("reader");
 
-    // Initialize stream configurations
     await html5QrCode.start(
       cameraId,
       {
-        fps: 30, // Higher frame rate for fast tracking
-
-        // No rigid qrbox boundaries—scans full viewport dynamically
+        fps: 30, // Fast frame scanning tracking
         aspectRatio: 1.0,
-        disableFlip: false,
-        experimentalFeatures: {
-          useBarCodeDetectorIfSupported: true // Taps phone chip hardware speed
-        }
+        disableFlip: false
       },
       (decodedText) => {
-        console.log("QR Frame Catch:", decodedText);
         onScanSuccess(decodedText);
       },
       (errorMessage) => {
-        // Suppress framework verbose background chatter
+        // Internal framework noise suppression
       }
     );
 
     scannerRunning = true;
-    console.log("Full-frame camera parser online.");
+    console.log("Camera parser online.");
 
   } catch (err) {
     console.error("Scanner Video Crash:", err);
-    updateStatus("Critical: Failed to hook video layout streams.", false);
+    updateStatus("Critical: Failed to access camera feed.", false);
   }
 }
 
-// Query browser camera peripherals 
+// Query browser camera hardware 
 async function initScanner() {
   try {
-    cameras = await Html5Qrcode.getCameras();
-
-    if (!cameras || cameras.length === 0) {
-      updateStatus("Initialization Error: No cameras detected on device.", false);
+    if (typeof Html5Qrcode === 'undefined') {
+      console.warn("Retrying camera initialization...");
+      setTimeout(initScanner, 300);
       return;
     }
 
-    console.log("System Peripherals Found:", cameras);
+    cameras = await Html5Qrcode.getCameras();
 
-    // Fallback search framework for rear lens configuration
+    if (!cameras || cameras.length === 0) {
+      updateStatus("Initialization Error: No cameras detected.", false);
+      return;
+    }
+
     let backCameraIndex = 0;
     cameras.forEach((camera, index) => {
       const label = camera.label.toLowerCase();
-      if (
-        label.includes("back") ||
-        label.includes("rear") ||
-        label.includes("environment")
-      ) {
+      if (label.includes("back") || label.includes("rear") || label.includes("environment")) {
         backCameraIndex = index;
       }
     });
 
     currentCameraIndex = backCameraIndex;
-
-    // Boot the primary chosen camera layout
     await startScanner(cameras[currentCameraIndex].id);
 
   } catch (err) {
     console.error("Device Capture Setup Crash:", err);
-    updateStatus("Initialization Error: Check local browser hardware permissions.", false);
+    updateStatus("Initialization Error: Check browser camera permissions.", false);
   }
 }
 
-// Toggle active phone lens sources 
+// Toggle active phone lenses
 async function switchCamera() {
   if (cameras.length <= 1) {
     updateStatus("System Info: Single physical lens detected.", false);
@@ -222,21 +182,19 @@ async function switchCamera() {
     currentCameraIndex = 0;
   }
 
-  console.log("Toggling lens focus index target:", cameras[currentCameraIndex].label);
   await startScanner(cameras[currentCameraIndex].id);
 }
 
-// Triggered by "Scan QR" button to arm the camera lens scanner mechanism
+// Triggered by "Scan QR" button
 function enableScan() {
   scanningEnabled = true;
   updateStatus("Scanning active... wave over a student QR code", true);
-  // Revert status label back to clear styles while search is pending
-  statusLabel.className = "status-label";
+  statusLabel.className = "status-label"; // Neutral text color style while searching
 }
 
-// Hook browser event triggers
-document.getElementById("switchCamera").addEventListener("click", switchCamera);
-document.getElementById("scanButton").addEventListener("click", enableScan);
-
-// Fire application initialization routines immediately on component parse load
-initScanner();
+// Register browser event triggers once DOM elements are stable
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("switchCamera").addEventListener("click", switchCamera);
+  document.getElementById("scanButton").addEventListener("click", enableScan);
+  initScanner();
+});
