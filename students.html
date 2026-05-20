@@ -6,71 +6,129 @@
   <title>Generate Student QR</title>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <style>
-    body{
+    body {
       font-family: Arial, sans-serif;
-      background:#f5f5f5;
-      display:flex;
-      justify-content:center;
-      align-items:center;
-      height:100vh;
-      margin:0;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px 0;
     }
 
-    .container{
-      background:white;
-      padding:30px;
-      border-radius:15px;
-      text-align:center;
-      box-shadow:0 0 15px rgba(0,0,0,0.1);
-      width:350px;
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+      width: 380px;
     }
 
-    input{
-      width:100%;
-      padding:12px;
-      margin-bottom:15px;
-      border-radius:8px;
-      border:1px solid #ccc;
-      font-size:16px;
-      box-sizing:border-box;
+    h1 {
+      font-size: 24px;
+      margin-top: 0;
+      color: #333;
     }
 
-    .btn{
-      padding:12px 20px;
-      border:none;
-      border-radius:8px;
-      cursor:pointer;
-      font-size:16px;
-      margin:5px;
+    .section-divider {
+      margin: 25px 0;
+      border: 0;
+      border-top: 1px solid #dfdfdf;
+      position: relative;
     }
 
-    .generate-btn{
-      background:#007bff;
-      color:white;
+    .section-divider::before {
+      content: "OR";
+      position: absolute;
+      top: -10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      padding: 0 10px;
+      color: #999;
+      font-size: 12px;
+      font-weight: bold;
     }
 
-    .download-btn{
-      background:#28a745;
-      color:white;
-      display:none;
+    input[type="text"] {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+      box-sizing: border-box;
     }
 
-    #qrContainer{
-      margin-top:20px;
-      background:white;
-      padding:20px;
-      border-radius:10px;
-      display:inline-block;
+    .btn {
+      width: 100%;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 6px 0;
+      font-weight: bold;
+      box-sizing: border-box;
     }
 
-    #studentDisplayName{
-      margin-top:15px;
-      font-size:22px;
-      font-weight:bold;
-      color:#222;
-      word-break:break-word;
+    .generate-btn {
+      background: #007bff;
+      color: white;
+    }
+    .generate-btn:hover { background: #0069d9; }
+
+    .download-btn {
+      background: #28a745;
+      color: white;
+      display: none;
+    }
+    .download-btn:hover { background: #218838; }
+
+    /* Bulk specific button styling templates */
+    .bulk-btn {
+      background: #17a2b8;
+      color: white;
+    }
+    .bulk-btn:hover { background: #138496; }
+
+    .zip-btn {
+      background: #6f42c1;
+      color: white;
+      display: none;
+    }
+    .zip-btn:hover { background: #5a32a3; }
+
+    #bulkStatus {
+      margin-top: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      color: #495057;
+    }
+
+    #qrContainer {
+      margin-top: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      display: inline-block;
+      border: 1px solid #eee;
+    }
+
+    #studentDisplayName {
+      margin-top: 15px;
+      font-size: 22px;
+      font-weight: bold;
+      color: #222;
+      word-break: break-word;
     }
   </style>
 </head>
@@ -80,14 +138,28 @@
   <h1>Student QR Generator</h1>
 
   <input type="text" id="studentName" placeholder="Enter student name">
-
+  
   <button class="btn generate-btn" onclick="generateQR()">
     Generate QR
   </button>
-
+  
   <button class="btn download-btn" id="downloadBtn" onclick="downloadQR()">
     Download QR
   </button>
+
+  <div class="section-divider"></div>
+
+  <input type="file" id="bulkInput" accept=".csv, .xlsx, .xls" style="display: none;" onchange="processBulkFile(event)">
+  
+  <button class="btn bulk-btn" onclick="document.getElementById('bulkInput').click()">
+    Import Excel / CSV
+  </button>
+
+  <button class="btn zip-btn" id="downloadZipBtn" onclick="downloadBulkZip()">
+    Download Bulk ZIP
+  </button>
+  
+  <div id="bulkStatus"></div>
 
   <div id="qrContainer">
     <div id="qrcode"></div>
@@ -95,15 +167,26 @@
   </div>
 </div>
 
-<script>
-function generateQR() {
+<div id="bulkSandbox" style="display:none;"></div>
 
+<script>
+// Global storage reference to hold bulk processed ZIP payload data
+let processedZipBlob = null;
+
+// ==========================================
+// SINGLE ENTRY CODES (UNTOUCHED LOGIC)
+// ==========================================
+function generateQR() {
   const name = document.getElementById('studentName').value.trim();
 
   if(name === ""){
     alert("Please enter student name");
     return;
   }
+
+  // Clear any past bulk artifacts tracking text out of viewport view
+  document.getElementById('bulkStatus').innerText = "";
+  document.getElementById('downloadZipBtn').style.display = "none";
 
   document.getElementById('qrcode').innerHTML = "";
   document.getElementById('studentDisplayName').innerText = name;
@@ -114,11 +197,10 @@ function generateQR() {
     height: 250
   });
 
-  document.getElementById('downloadBtn').style.display = "inline-block";
+  document.getElementById('downloadBtn').style.display = "block";
 }
 
 function downloadQR() {
-
   const qrCanvas = document.querySelector("#qrcode canvas");
   const studentName = document.getElementById("studentDisplayName").innerText;
 
@@ -133,24 +215,167 @@ function downloadQR() {
   finalCanvas.width = 300;
   finalCanvas.height = 380;
 
-  // White background
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-
-  // Draw QR
   ctx.drawImage(qrCanvas, 25, 20, 250, 250);
 
-  // Draw Name
   ctx.fillStyle = "black";
   ctx.font = "bold 24px Arial";
   ctx.textAlign = "center";
   ctx.fillText(studentName, finalCanvas.width / 2, 320);
 
-  // Download image
   const link = document.createElement("a");
   link.download = studentName + "_QR.png";
   link.href = finalCanvas.toDataURL("image/png");
   link.click();
+}
+
+// ==========================================
+// NEW BULK PROCESSING & EXPORT ZIP SYSTEM
+// ==========================================
+function processBulkFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const statusDiv = document.getElementById('bulkStatus');
+  const zipBtn = document.getElementById('downloadZipBtn');
+  
+  statusDiv.style.color = "#495057";
+  statusDiv.innerText = "Reading spreadsheet file...";
+  zipBtn.style.display = "none";
+  processedZipBlob = null;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      
+      // Target the very first sheet tab inside the spreadsheet workbook layout
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      
+      // Read raw rows arrays out of component sheets parsing handles
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      let studentNames = [];
+      
+      rows.forEach((row, index) => {
+        if (!row || row.length === 0) return;
+        
+        const cellValue = String(row[0]).trim();
+        if (cellValue === "" || cellValue === "null" || cellValue === "undefined") return;
+
+        // Skip structural field headers row models dynamically
+        const lowerVal = cellValue.toLowerCase();
+        if (index === 0 && (lowerVal === "name" || lowerVal === "student name" || lowerVal === "students")) {
+          return; 
+        }
+
+        studentNames.push(cellValue);
+      });
+
+      if (studentNames.length === 0) {
+        statusDiv.style.color = "#d32f2f";
+        statusDiv.innerText = "Error: No names found in the first column.";
+        return;
+      }
+
+      statusDiv.innerText = `Found ${studentNames.length} names. Generating ZIP packet...`;
+      
+      // Execute the asynchronous compilation task background sequence
+      generateBulkZipArchive(studentNames);
+
+    } catch (err) {
+      console.error(err);
+      statusDiv.style.color = "#d32f2f";
+      statusDiv.innerText = "Error parsing file template framework structural markers.";
+    }
+  };
+  
+  reader.readAsArrayBuffer(file);
+}
+
+function generateBulkZipArchive(namesArray) {
+  const zip = new JSZip();
+  const sandbox = document.getElementById('bulkSandbox');
+  const statusDiv = document.getElementById('bulkStatus');
+  
+  // Track assigned name counters to cleanly avoid system file collision crashes on identical twins/names
+  let filenameCounts = {};
+
+  namesArray.forEach((studentName) => {
+    // Re-instantiate a clean offscreen sandboxed element target node structural framework layer
+    sandbox.innerHTML = "";
+    
+    // Create base rendering matrix targets synchronously
+    new QRCode(sandbox, {
+      text: studentName,
+      width: 250,
+      height: 250,
+      correctLevel: QRCode.CorrectLevel.H
+    });
+
+    const qrCanvas = sandbox.querySelector("canvas");
+    
+    // Draw layout structure canvas mirror elements matching original download specification configurations
+    const compositeCanvas = document.createElement("canvas");
+    const ctx = compositeCanvas.getContext("2d");
+    compositeCanvas.width = 300;
+    compositeCanvas.height = 380;
+
+    ctx.fillStyle = "white";
+    ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+    ctx.drawImage(qrCanvas, 25, 20, 250, 250);
+
+    ctx.fillStyle = "black";
+    ctx.font = "bold 24px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText(studentName, compositeCanvas.width / 2, 320);
+
+    // Grab raw image component strings stripped of operational descriptor data payload metadata handles
+    const dataURL = compositeCanvas.toDataURL("image/png");
+    const base64Data = dataURL.split(',')[1];
+
+    // Build unique filename string calculations automatically
+    let safeFileName = studentName.replace(/[/\\?%*:|"<>]/g, '-'); // Sanitize illegal file system chars
+    if (filenameCounts[safeFileName]) {
+      filenameCounts[safeFileName]++;
+      safeFileName = `${safeFileName}_(${filenameCounts[safeFileName]})`;
+    } else {
+      filenameCounts[safeFileName] = 1;
+    }
+
+    // Append standard binary structures inside memory registry handles
+    zip.file(`${safeFileName}_QR.png`, base64Data, { base64: true });
+  });
+
+  // Compile entire repository stack structure output vectors synchronously across background loops
+  zip.generateAsync({ type: "blob" }).then((content) => {
+    processedZipBlob = content;
+    statusDiv.style.color = "#28a745";
+    statusDiv.innerText = `ZIP ready! Processed ${namesArray.length} student cards.`;
+    document.getElementById('downloadZipBtn').style.display = "block";
+    
+    // Reset file element values cleanly so importing the exact same modified item repeatedly triggers correctly
+    document.getElementById('bulkInput').value = "";
+  });
+}
+
+function downloadBulkZip() {
+  if (!processedZipBlob) {
+    alert("No active ZIP folder references cached.");
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const link = document.createElement("a");
+  link.download = `Student_QR_Batch_${today}.zip`;
+  link.href = URL.createObjectURL(processedZipBlob);
+  link.click();
+  
+  // Free device memory block parameters once anchor download triggers cleanly
+  URL.revokeObjectURL(link.href);
 }
 </script>
 
