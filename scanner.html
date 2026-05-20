@@ -6,11 +6,9 @@
   <title>QR Scanner</title>
   <link rel="stylesheet" href="style.css">
 
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <!-- REMOVED outdated Firebase v8 scripts entirely -->
 
-  <script src="firebase-config.js"></script>
-
+  <!-- Keep the QR Code Library -->
   <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body>
@@ -19,6 +17,10 @@
   <h1>Attendance Scanner</h1>
 
   <div id="reader"></div>
+  
+  <!-- Added Status Label for green/red alerts -->
+  <p id="scanStatus" class="status-label"></p>
+
   <button id="scanButton" class="btn">
     Scan QR
   </button>
@@ -39,6 +41,7 @@
   </table>
 </div>
 
+<!-- Kept native JS module import -->
 <script type="module" src="scanner.js"></script>
 
 </body>
