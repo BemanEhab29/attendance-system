@@ -1,14 +1,7 @@
-import { db } from './firebase-config.js';
-
-import {
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-// Load the QR Scanner directly as a module to fix the silent loading crash!
-import { Html5Qrcode } from "https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/+esm";
+// Load the QR Scanner engine directly into local scope
+const script = document.createElement('script');
+script.src = "https://unpkg.com/html5-qrcode";
+document.head.appendChild(script);
 
 // DOM Elements
 const table = document.getElementById('attendanceTable');
@@ -21,11 +14,13 @@ let currentCameraIndex = 0;
 let scannerRunning = false;
 let scanningEnabled = false;
 
+// Append a visual row to the web table
 function addToTable(student, date, time) {
   const row = `<tr><td>${student}</td><td>${date}</td><td>${time}</td></tr>`;
   table.innerHTML += row;
 }
 
+// Update the message color text layout
 function updateStatus(message, isSuccess) {
   statusLabel.textContent = message;
   if (isSuccess) {
@@ -35,37 +30,63 @@ function updateStatus(message, isSuccess) {
   }
 }
 
-async function saveAttendance(studentName) {
-  try {
-    const now = new Date();
-    const date = now.toLocaleDateString();
-    const time = now.toLocaleTimeString();
+// ==========================================
+// LOCAL STORAGE ATTENDANCE ENGINE
+// ==========================================
 
-    const todayKey = `${studentName}_${date}`;
-    const attendanceRef = doc(db, "attendance", todayKey);
-    const existing = await getDoc(attendanceRef);
-
-    if (existing.exists()) {
-      updateStatus(`Error: Attendance already recorded today for ${studentName}`, false);
-      return;
-    }
-
-    await setDoc(attendanceRef, {
-      student: studentName,
-      date: date,
-      time: time,
-      timestamp: serverTimestamp()
+// Load saved data from browser memory and display it in the table on start
+function loadSavedAttendance() {
+  const savedData = localStorage.getItem('attendanceRecords');
+  if (savedData) {
+    const records = JSON.parse(savedData);
+    table.innerHTML = ""; // Clear table layout skeleton
+    records.forEach(record => {
+      addToTable(record.student, record.date, record.time);
     });
-
-    addToTable(studentName, date, time);
-    updateStatus(`Successfully scanned: ${studentName}`, true);
-
-  } catch (error) {
-    console.error("Firebase save error:", error);
-    updateStatus("Error: Failed saving to database.", false);
   }
 }
 
+// Save attendance data locally
+function saveAttendanceLocally(studentName) {
+  const now = new Date();
+  const date = now.toLocaleDateString();
+  const time = now.toLocaleTimeString();
+
+  // Get current records array or make a new one if empty
+  let records = [];
+  const savedData = localStorage.getItem('attendanceRecords');
+  if (savedData) {
+    records = JSON.parse(savedData);
+  }
+
+  // Prevent duplicate attendance for the same student on the same day
+  const isDuplicate = records.some(record => record.student === studentName && record.date === date);
+  if (isDuplicate) {
+    updateStatus(`Error: Attendance already recorded today for ${studentName}`, false);
+    return;
+  }
+
+  // Push new record object into the local array
+  records.push({ student: studentName, date: date, time: time });
+
+  // Save the array back into the browser's permanent storage
+  localStorage.setItem('attendanceRecords', JSON.stringify(records));
+
+  // Instantly append to table interface
+  addToTable(studentName, date, time);
+  updateStatus(`Successfully scanned: ${studentName}`, true);
+}
+
+// Clear all local records function
+function clearAllRecords() {
+  if (confirm("Are you sure you want to clear all attendance data from this phone?")) {
+    localStorage.removeItem('attendanceRecords');
+    table.innerHTML = "";
+    updateStatus("All records cleared successfully.", true);
+  }
+}
+
+// Anti-spam timers
 let lastScanned = "";
 let lastScanTime = 0;
 
@@ -81,8 +102,8 @@ function onScanSuccess(decodedText) {
   lastScanned = decodedText;
   lastScanTime = currentTime;
 
-  console.log("Scanned:", decodedText);
-  saveAttendance(decodedText);
+  console.log("Locally Parsed QR:", decodedText);
+  saveAttendanceLocally(decodedText);
 }
 
 async function startScanner(cameraId) {
@@ -98,11 +119,10 @@ async function startScanner(cameraId) {
     await html5QrCode.start(
       cameraId,
       {
-        fps: 24,
-        // Using a fluid bounding box calculation to help the lens focus cleanly
+        fps: 30, // High-speed framing scan track speed
         qrbox: (viewfinderWidth, viewfinderHeight) => {
           const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-          const boxSize = Math.floor(minEdge * 0.75); // 75% of screen size
+          const boxSize = Math.floor(minEdge * 0.75);
           return { width: boxSize, height: boxSize };
         },
         aspectRatio: 1.0,
@@ -111,26 +131,28 @@ async function startScanner(cameraId) {
       (decodedText) => {
         onScanSuccess(decodedText);
       },
-      (errorMessage) => {
-        // Silent catch
-      }
+      (errorMessage) => { /* Background tracker bypass */ }
     );
 
     scannerRunning = true;
-    console.log("Scanner engine is live!");
+    console.log("Scanner live.");
 
   } catch (err) {
-    console.error("Scanner Start Error:", err);
+    console.error(err);
     updateStatus("Critical: Camera initialization failed.", false);
   }
 }
 
 async function initScanner() {
   try {
-    cameras = await Html5Qrcode.getCameras();
+    if (typeof Html5Qrcode === 'undefined') {
+      setTimeout(initScanner, 200);
+      return;
+    }
 
+    cameras = await Html5Qrcode.getCameras();
     if (!cameras || cameras.length === 0) {
-      updateStatus("Error: No cameras found.", false);
+      updateStatus("Error: No cameras detected.", false);
       return;
     }
 
@@ -146,8 +168,7 @@ async function initScanner() {
     await startScanner(cameras[currentCameraIndex].id);
 
   } catch (err) {
-    console.error("Camera Init Error:", err);
-    updateStatus("Error: Please grant camera access permissions.", false);
+    updateStatus("Error: Grant camera access permissions.", false);
   }
 }
 
@@ -163,15 +184,13 @@ function enableScan() {
   statusLabel.className = "status-label";
 }
 
-// Boot setup securely after DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => {
-    document.getElementById("switchCamera").addEventListener("click", switchCamera);
-    document.getElementById("scanButton").addEventListener("click", enableScan);
-    initScanner();
-  });
-} else {
+// Bind components securely on script execution run
+script.onload = () => {
   document.getElementById("switchCamera").addEventListener("click", switchCamera);
   document.getElementById("scanButton").addEventListener("click", enableScan);
+  document.getElementById("clearData").addEventListener("click", clearAllRecords);
+  
+  // Load any existing past student data out of the memory block
+  loadSavedAttendance();
   initScanner();
-}
+};
